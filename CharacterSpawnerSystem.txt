@@ -5,8 +5,100 @@ This system was a new feature implemented for the game to better divide and mana
 
 
 Coding Features and Strategies Utilized in this system:
- - Asset Bundle loading and unloading to organize and manage character prefabs and corresponding assets
+ - Asset Bundle loading and unloading to retrieve data from defined character asset bundles and load them into the game as needed
+ - Data and File management which allows for us to better organize and structure or assets and to reduce the overall size of files and
+   the game package as a whole
  
  
 Code Snippets:
-Not available due to NDA.
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class NPC_Spawner : MonoBehaviour {
+
+    #region Public Variables
+    public string NPC_Name;
+    public string assetName;
+    public string bundleName;
+    public GameObject m_StartConversation;
+    public Transform mOriginPosition;
+    public Material mCharacterMaterial;
+    #endregion
+
+    #region Private Variables
+    private string npcAssetPath;
+    #endregion
+
+    private void Awake()
+    {
+        StartCoroutine("SpawnNPC");
+    }
+
+    // Use this for initialization
+    void Start () {
+		
+	}
+	
+	// Update is called once per frame
+	void Update () {
+		
+	}
+
+    IEnumerator SpawnNPC()
+    {
+        //Wait until the loading asset bundle script instance is set before trying to load in asset bundles
+        yield return new WaitUntil(() => LoadAssetBundles.instance != null);
+
+        //Create the file path name using the streaming asset path and the set bundle name
+        npcAssetPath = Application.streamingAssetsPath + "/" + bundleName;
+        
+        //Attempts to get the instantiated npc from the asset bundle
+        GameObject npc = LoadAssetBundles.instance.InstantiateObjectFromBundle(assetName, npcAssetPath);
+
+        //If the npc object exists then we set and define all of its refrences
+        if (npc != null)
+        {
+            NPC_Behaviour npcChar = npc.GetComponent<NPC_Behaviour>();
+
+            //Set the name, start convo button and original position of the npc
+            npcChar.m_NPCName = NPC_Name;
+            npcChar.m_StartConversation = m_StartConversation;
+            npcChar.m_OriginPosition = mOriginPosition;
+            npc.transform.position = mOriginPosition.position;
+
+            //Enable and set the animator
+            npc.GetComponent<Animator>().enabled = true;
+
+            //Set the appropriate sprite for the npc
+            NPC_Behaviour npcBehaveScript = npc.GetComponent<NPC_Behaviour>();
+            if(npcBehaveScript != null)
+            {
+                if(npcBehaveScript.NPC_CharacterRenderer != null)
+                {
+                    SpriteRenderer spriteRend = npcBehaveScript.NPC_CharacterRenderer.GetComponent<SpriteRenderer>();
+                    if (spriteRend != null)
+                    {
+                        spriteRend.material = mCharacterMaterial;
+                    }
+                }                
+            }            
+
+            //Then teleport the npc to their origin point
+            npcChar.InstantSetOrigin();
+
+            //Add character reference to the GameManager Lists
+            GameManager.instance.allNPCs.Add(npc);
+            GameManager.instance.allNPCIndices.Add(NPC_Name.ToUpper(), GameManager.instance.allNPCs.Count - 1);
+
+            //ReInitialize all the characters with the all the references set
+            npcChar.ReInitializeNPC();
+            GameManager.instance.storyManager.GetComponent<StoryManagerCradle>().ResetNPCInteractability(NPC_Name, npcChar.m_Affinity);
+
+            //Turn the spawner off after spawning the npc/will delete itself instead
+            this.gameObject.SetActive(false);
+        }
+    }
+}
+
