@@ -1,0 +1,1079 @@
+Background Character AI Movement system:
+
+Description:
+This system was a new feature that I built for the game in order to control the movement of background characters (refered to as Shadow NPCs in the code) across the game area. These characters are meant to populate the game space and give a sense of a liveliness to the game as a whole. The system controls all the movement of the shadow npcs in the game, referencing them through lists that are populated in the editor. It randomly selects a set number of npcs and attempts to move them to a randomly selected Box Car and spot on the game space (which is a train). Once it has attempted to move all the characters, the system then waits for a random amount of time (within a set time interval) before randomly selecting a new set of characters to begin moving.
+
+The system is also designed to take into account various environmental factors that would prevent a shadow npc from moving or stopping. If a particular section of the train is set as "banned" for the npcs, it will temporarily remove the npcs from the banned area and prevent any npc from entering the area for any reason. Additionally, depending on where the player is or what the player is doing (such as entering into a convrsation with another npc on the train) the background characters will move away from the area and will not stop behind the player, but instead will continue moving until they are "allowed" to stop (such as when the player ends a conversation).
+
+
+Coding Features and Strategies Utilized in this system:
+ - Data Structures such as lists and dictionaries to keep store and track information regarding the shadow npcs' movement
+ - State Machine Style AI in which the system is able to remember and track where the npcs are coming from and what state of movement      they were or are at in order to determine their next action or movement 
+
+
+Code Snippets:
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class ShadowNPCBehavior : MonoBehaviour {
+    public static ShadowNPCBehavior instance = null;
+    
+    #region Private Variables 
+    //List of target point to move to after we are not in the character view range
+    private struct ShadowNPCTargetMove
+    {
+        public Vector3 targetMovePoint;
+        public ShadowNPC npc;
+    }
+    private List<ShadowNPCTargetMove> ShadowNPCTargetList = new List<ShadowNPCTargetMove>();
+
+    //Determines whether or not to move a shadow npc
+    private bool moveShadowNPC = true;
+    //How long we wait until we move the next shadow npc
+    private int timeToWaitNextMove = 0;
+    //List of boxcars where shadow people are not allowed to move into/through
+    private List<int> bannedBoxCars = new List<int>();
+    //List of ShadowNPCs that get removed from a banned box car
+    private Dictionary<int, List<ShadowNPC>> removedShadowNPC = new Dictionary<int, List<ShadowNPC>>();
+    private List<ShadowNPC> reAddShadowNPC = new List<ShadowNPC>();
+
+    private List<ShadowNPC> previousMovedNPC = new List<ShadowNPC>();
+    private List<ShadowNPC> movingShadowNPC = new List<ShadowNPC>();
+
+    
+    #endregion
+
+    #region Public/Inspector Variables
+    public List<GameObject> ShadowMen = new List<GameObject>();
+    public List<GameObject> ShadowWomen = new List<GameObject>();
+    public List<GameObject> ShadowChildren = new List<GameObject>();
+
+    public List<GameObject> ShadowPeople = new List<GameObject>();
+
+    [System.Serializable]
+    public struct BoxCarShadowSpot
+    {
+        public Transform spotPosition;
+        public GameObject shadowNPC;
+    }
+
+    [System.Serializable]
+    public struct BoxCarShadowSpots
+    {
+        public int boxCarNum;
+        public List<BoxCarShadowSpot> shadowSpots;
+    }
+
+    public List<BoxCarShadowSpots> boxCarSpots = new List<BoxCarShadowSpots>();
+
+    //List of shadow people and their info about their current location
+    [System.Serializable]
+    public struct ShadowNPC
+    {
+        public int currBoxCarNum;
+        public int currSpotNum;
+        public GameObject npc;
+    }
+    public List<ShadowNPC> ShadowNPCList = new List<ShadowNPC>();
+
+    //Ranges of view and movement for the main character
+    public float mainCharViewRange = 8.0f;
+    public float mainCharMoveRange = 15.0f;
+    public float mainCharConvoRange = 3.0f;
+
+    public GameObject mainCharacter;
+    public Transform leftBound;
+    public Transform rightBound;
+
+    [SerializeField]
+    [Tooltip("Used to toggle whether or not the shadow movement system on the initial placement state should ignore the player ranges")]
+    private bool _ignoreInitialPlayerRange = false;
+
+    [SerializeField]
+    [Tooltip("Used to toggle whether or not the shadow movement system should ignore the player ranges when they move on the train")]
+    private bool _ignoreMovePlayerRange = false;
+
+    [SerializeField]
+    [Tooltip("Used to toggle whether or not the shadow movement system should move in the z-direction")]
+    private bool _moveInZDirection = false;
+
+    [Header("Movement Variables")]
+
+    [SerializeField]
+    [Tooltip("Set the number of shadow people that should be told to move at a time")]
+    private int _moveFrequency = 1;
+
+    [SerializeField]
+    [Tooltip("The minimum amount of time to wait before trying to move the shadow people again")]
+    private int _minTime = 2;
+
+    [SerializeField]
+    [Tooltip("The maximum amount of time to wait before trying to move the shadow people again (the time to wait before moving the shadow people is between the min and max time)")]
+    private int _maxTime = 5;
+
+    [SerializeField]
+    [Tooltip("The minimum speed the shadow men can have (It will be a range between the min and max speed)")]
+    private float _minSpeedShadowMan = 2.2f;
+
+    [SerializeField]
+    [Tooltip("The maximum speed the shadow men can have (It will be a range between the min and max speed)")]
+    private float _maxSpeedShadowMan = 3.0f;
+
+    [SerializeField]
+    [Tooltip("The minimum speed the shadow women can have (It will be a range between the min and max speed)")]
+    private float _minSpeedShadowWoman = 2.2f;
+
+    [SerializeField]
+    [Tooltip("The maximum speed the shadow women can have (It will be a range between the min and max speed)")]
+    private float _maxSpeedShadowWoman = 3.0f;
+
+    [SerializeField]
+    [Tooltip("The minimum speed the shadow children can have (It will be a range between the min and max speed)")]
+    private float _minSpeedShadowChild = 2.2f;
+
+    [SerializeField]
+    [Tooltip("The maximum speed the shadow children can have (It will be a range between the min and max speed)")]
+    private float _maxSpeedShadowChild = 3.0f;
+    #endregion
+
+    private void Awake()
+    {
+        if (instance == null)
+        {
+            instance = this;
+        }
+        else
+        {
+            Debug.LogWarning("ShadowNPCBejavior.cs: There are too many shadow behavior manager instances in the current scene. Deleting the duplicate.");
+            Destroy(gameObject);
+        }
+
+        //Fills the shadow people list with all the npcs from the shadow men, women, and children lists
+        InitializeShadowPeopleList();
+    }
+
+    // Use this for initialization
+    void Start ()
+    {  
+        //Fills the Shadow People list with the intialized values for each npc
+        InitializeShadowNPCList();
+        //Sets all the shadow npcs to a random spot
+        InitializeShadowNPCSpots();
+        //Set the ignore initial back to false so that the shadow npc move at normal speed after the initial move
+        _ignoreInitialPlayerRange = false;
+
+        //Initialize the previously moved npc to be the first npc
+        previousMovedNPC.Add(ShadowNPCList[0]);
+    }
+
+    /// <summary>
+    /// Initializes the shadow people list by taking all the people from the shadow men, women, and children's list 
+    /// and adding them to the main list
+    /// </summary>
+    private void InitializeShadowPeopleList()
+    {
+        //Add all the shadow men to the shadow people list
+        for(int i = 0; i < ShadowMen.Count; i++)
+        {
+            ShadowPeople.Add(ShadowMen[i]);
+        }
+
+        //Add all the shadow women to the shadow people list
+        for (int i = 0; i < ShadowWomen.Count; i++)
+        {
+            ShadowPeople.Add(ShadowWomen[i]);
+        }
+
+        //Add all the shadow children to the shadow people list
+        for (int i = 0; i < ShadowChildren.Count; i++)
+        {
+            ShadowPeople.Add(ShadowChildren[i]);
+        }
+    }
+
+    /// <summary>
+    /// Initializes the list of shadow npcs and sets their current spot values to 0
+    /// </summary>
+    private void InitializeShadowNPCList()
+    {
+        for (int i = 0; i < ShadowPeople.Count; i++)
+        {
+            ShadowNPC npc;
+            npc.currBoxCarNum = 0;
+            npc.currSpotNum = 0;
+            npc.npc = ShadowPeople[i];
+
+            ShadowNPCList.Add(npc);
+        }
+    }
+
+    /// <summary>
+    /// Assigns every shadow npc a random spot on the train
+    /// </summary>
+    private void InitializeShadowNPCSpots()
+    {
+        //Loop through all the shadow npcs and assign them to a random spot
+        for (int i = 0; i < ShadowNPCList.Count; i++)
+        {
+            //Keep trying to assign them to a spot until they finally get one
+            bool posAssigned = false;
+            int count = 0;
+            while (!posAssigned && count < 200)
+            {
+                int randBoxCar = Random.Range(1, boxCarSpots.Count + 1);
+
+                posAssigned = AssignSpotBoxCar(ShadowNPCList[i], randBoxCar, _ignoreInitialPlayerRange);
+
+                count++;
+            }
+        }
+    }
+    
+    void Update () {
+        //Loop through the list of move targets if the shadow people couldn't have moved while the player was there
+		for(int i = 0; i < ShadowNPCTargetList.Count; i++)
+        {
+            ShadowNPC sNPC = ShadowNPCTargetList[i].npc;
+
+            //If the shadow npc isn't in the main character view range and the target move point ins't in the view range
+            //then teleport the npc to that spot and remove them from the list
+            if(Vector3.Distance(sNPC.npc.transform.position,
+                mainCharacter.transform.position) > mainCharViewRange
+                && Vector3.Distance(ShadowNPCTargetList[i].targetMovePoint,
+                mainCharacter.transform.position) > mainCharViewRange)
+            {
+                //Set the direction the npc should be facing
+                if(sNPC.npc.transform.position.x < ShadowNPCTargetList[i].targetMovePoint.x)
+                {
+                    sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", false);
+                }
+                else
+                {
+                    sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", true);
+                }
+
+                sNPC.npc.transform.position = new Vector3(
+                    ShadowNPCTargetList[i].targetMovePoint.x,
+                    sNPC.npc.transform.position.y,
+                    sNPC.npc.transform.position.z);
+
+                ShadowNPCTargetList.Remove(ShadowNPCTargetList[i]);
+                i--;
+            }
+        }
+
+        //Go through every removed shadow person and wait until the player is out of view range to remove them
+        foreach(var i in removedShadowNPC.Keys)
+        {
+            for(int j = 0; j < removedShadowNPC[i].Count; j++)
+            {
+                //Checks to make sure they are outside the player range before removing
+                if (Vector3.Distance(removedShadowNPC[i][j].npc.transform.position,
+                        mainCharacter.transform.position) > mainCharViewRange)
+                {
+                    removedShadowNPC[i][j].npc.SetActive(false);
+
+                    removedShadowNPC[i].Remove(removedShadowNPC[i][j]);
+                    j--;
+                }
+            }
+        }
+
+        //Go through and re add all the removed shadow npc from the unbanned box car and sets them back to active
+        for(int i = 0; i < reAddShadowNPC.Count; i++)
+        {
+            //Checks to make sure they are outside the player view range before setting them back on
+            if (Vector3.Distance(reAddShadowNPC[i].npc.transform.position,
+                        mainCharacter.transform.position) > mainCharViewRange)
+            {
+                reAddShadowNPC[i].npc.SetActive(true);
+                ShadowNPCList.Add(reAddShadowNPC[i]);
+
+                reAddShadowNPC.Remove(reAddShadowNPC[i]);
+                i--;
+            }
+        }
+
+        //If we can move a shadow npc, randomly try picking shadow people to move
+        if(moveShadowNPC && ShadowNPCList.Count > 0)
+        {
+            //Repeat the move request a set number of times
+            for(int i = 0; i < _moveFrequency; i++)
+            {
+                int randNPCNum = 0;
+                ShadowNPC randNPC = ShadowNPCList[0];
+
+                int attempts;
+
+                //If we have more than one shadow npc, try to pick an npc to move that was not previously moved
+                if (ShadowNPCList.Count > 1)
+                {
+                    bool uniqueNPCSelected = false;
+                    attempts = 0;
+                    while (!uniqueNPCSelected && attempts < ShadowNPCList.Count)
+                    {
+                        //Set the unique selection to true
+                        uniqueNPCSelected = true;
+
+                        //Generate the random npc number and set the randNPC
+                        randNPCNum = Random.Range(0, ShadowNPCList.Count);
+
+                        //Go trhough every previously move npc and check to make sure it isn't already moved
+                        for (int k = 0; k < previousMovedNPC.Count; k++)
+                        {
+                            //If the npc we want to move was already moved, reset the random npc number and set the unique selection to false
+                            if (ShadowNPCList[randNPCNum].npc == previousMovedNPC[k].npc)
+                            {
+                                randNPCNum = 0;
+                                uniqueNPCSelected = false;                              
+                            }
+                        }
+
+                        //If a unique npc was selected then set the randNPC to the selected character
+                        if(uniqueNPCSelected)
+                        {
+                            randNPC = ShadowNPCList[randNPCNum];
+                        }
+
+                        attempts++;
+                    }
+                }
+
+                //Try to move the npc to a random spot on the train
+                attempts = 0;
+                bool posAssigned = false;
+                while (!posAssigned && attempts < 200)
+                {
+                    //Assign the spot without ignore player rnage
+                    posAssigned = AssignSpotTrain(randNPC, _ignoreMovePlayerRange);
+                    attempts++;
+                }
+
+                //Add the moved npc to the previously moved list
+                previousMovedNPC.Add(randNPC);
+            }
+
+            //Once we're done trying to move npcs, reset the previously moved list
+            previousMovedNPC.Clear();
+            
+
+            //Set to wait a random amount of time before moving another shadow npc character
+            timeToWaitNextMove = Random.Range(2, 6);
+            moveShadowNPC = false;
+            StartCoroutine("WaitUntilMove");
+        }
+    }
+
+    //Waits the set amount of time then sets the move shadow npc back to true
+    IEnumerator WaitUntilMove()
+    {
+        yield return new WaitForSeconds(timeToWaitNextMove);
+        moveShadowNPC = true;
+    }
+
+    /// <summary>
+    /// Checks whether or not we can move the shadow npc to the specified target spot and returns whether or not it was successful
+    /// </summary>
+    /// <param name="sNPC"></param>
+    /// <param name="targetPos"></param>
+    /// <returns></returns>
+    private bool MoveShadowNPC(ShadowNPC sNPC, Vector3 targetPos, bool ignoreRange)
+    {
+        //If the main character is in conversation, then check to make sure the 
+        if (mainCharacter.GetComponent<MainCharacter_Manager>().inConversation)
+        {
+            if (Vector3.Distance(sNPC.npc.transform.position, mainCharacter.transform.position) < mainCharConvoRange)
+            {
+                return false;
+            }
+        }
+
+        //If the shadow NPC is already moving then don't try to move the NPC
+        for (int i = 0; i < movingShadowNPC.Count; i++)
+        {
+            if (movingShadowNPC[i].npc == sNPC.npc)
+            {
+                return false;
+            }
+        }        
+
+        //If we are not in range of the main char's view, then set the move
+        if (Vector3.Distance(sNPC.npc.transform.position, mainCharacter.transform.position) > mainCharViewRange
+            || ignoreRange)
+        {
+            if(Vector3.Distance(targetPos, mainCharacter.transform.position) > mainCharMoveRange
+                || ignoreRange)
+            {
+                StartCoroutine(MoveShadowPerson(sNPC, targetPos, ignoreRange, _ignoreInitialPlayerRange));
+
+                //Adds them to the movingShadowNPC list
+                movingShadowNPC.Add(sNPC);
+
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        //If we are in range, then add them to a list to move later when player is out of range
+        else
+        {
+            ShadowNPCTargetMove targetMove;
+            targetMove.targetMovePoint = targetPos;
+            targetMove.npc = sNPC;
+            ShadowNPCTargetList.Add(targetMove);
+
+            //Adds them to the movingShadowNPC list
+            movingShadowNPC.Add(sNPC);
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Actually does the movement for the shadow npc to the given target spot
+    /// </summary>
+    /// <param name="sNPC"></param>
+    /// <param name="targetPos"></param>
+    /// <returns></returns>
+    private IEnumerator MoveShadowPerson(ShadowNPC sNPC, Vector3 targetPos, bool ignoreRange, bool ignoreRangeInitial)
+    {
+        //Shadow npc movement variables
+        bool keepMoving = true;
+        bool reachedTarget = false;
+        bool pastTarget = false;
+        bool wasTalking = false;
+        bool flipNPCWalk = false;
+        float movementDirection = 1.0f;
+
+        //Set the walking on
+        sNPC.npc.GetComponent<Animator>().SetBool("Is_Walking", true);
+
+        //Set the direction the npc should be facing
+        if (sNPC.npc.transform.position.x < targetPos.x)
+        {
+            sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", false);
+        }
+        else
+        {
+            sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", true);
+        }
+
+        //Sets the z constants to determine whether or not to move in the z direction
+        //The transform constant determines if we use the shadow npc current z instead of the target (if equals 1.0f z move off)
+        //The target constant determines if we use the target z position instead of the shadow npc transform (if equals 1.0f z move on)
+        float zTransformConstant = 1.0f;
+        float zTargetConstant = 0.0f;
+        if(_moveInZDirection)
+        {
+            zTransformConstant = 0.0f;
+            zTargetConstant = 1.0f;            
+        }
+        else
+        {
+            zTransformConstant = 1.0f;
+            zTargetConstant = 0.0f;            
+        }
+
+        //Set the randomized speed of the shadow npc base on the set speed limits
+        float npcSpeed = 2.5f;
+        if(ShadowMen.Contains(sNPC.npc))
+        {
+            int speed = Random.Range((int)(_minSpeedShadowMan * 10.0f), (int)(_maxSpeedShadowMan * 10.0f));
+            npcSpeed = (float)speed / 10.0f;
+        }
+        else if(ShadowWomen.Contains(sNPC.npc))
+        {
+            int speed = Random.Range((int)(_minSpeedShadowWoman * 10.0f), (int)(_maxSpeedShadowWoman * 10.0f));
+            npcSpeed = (float)speed / 10.0f;
+        }
+        else if(ShadowChildren.Contains(sNPC.npc))
+        {
+            int speed = Random.Range((int)(_minSpeedShadowChild * 10.0f), (int)(_maxSpeedShadowChild * 10.0f));
+            npcSpeed = (float)speed / 10.0f;
+        }
+
+        //Change the value from 1.0f to another one to multiply the speed of the shadow npc when they are not near the player
+        if (Vector3.Distance(sNPC.npc.transform.position,
+            mainCharacter.transform.position) > 10.0f || ignoreRange)
+            npcSpeed *= 1.0f;
+
+        //If we ignore initial range then we want to shadow npc to be at their respective spots immediately on start 
+        //and move normally in all other movement cases
+        if (ignoreRangeInitial)
+        {
+            npcSpeed *= 50.0f;
+        }  
+
+        //Process to move all the shadow npc
+        while (Vector3.Distance(new Vector3(sNPC.npc.transform.position.x, targetPos.y, 
+            (sNPC.npc.transform.position.z * zTargetConstant + targetPos.z * zTransformConstant)), targetPos) > 0.1f || keepMoving )
+        {
+            //If the target point is not in the main character view then go to the spot
+            //Also, if the main character is not in a conversation and the shadow person is within the conversation range
+            if(((Vector3.Distance(targetPos, mainCharacter.transform.position) > mainCharMoveRange || ignoreRange)
+                && !(pastTarget && keepMoving && (Vector3.Distance(sNPC.npc.transform.position, 
+                    mainCharacter.transform.position) < mainCharMoveRange))) 
+                && !(mainCharacter.GetComponent<MainCharacter_Manager>().inConversation && 
+                    Vector3.Distance(targetPos, mainCharacter.transform.position) < mainCharConvoRange))
+            {
+                //If the npc has gone past the target point, they were told to keep moving past the target
+                //and the npc is no in the move/view range of the player then teleport them directly to the target spot
+                //and exit the loop
+                if(pastTarget && keepMoving && 
+                    (Vector3.Distance(sNPC.npc.transform.position, mainCharacter.transform.position) > mainCharMoveRange || ignoreRange))
+                {
+                    //If the player recently ended a conversation, then check that the main character isn't in range of the target 
+                    //spot before teleporting the npc to their spot
+                    if (wasTalking)
+                    {
+                        if (Vector3.Distance(targetPos, mainCharacter.transform.position) >= mainCharViewRange)
+                        {
+                            sNPC.npc.transform.position = new Vector3(targetPos.x, sNPC.npc.transform.position.y,
+                                (sNPC.npc.transform.position.z * zTransformConstant + targetPos.z * zTargetConstant));
+
+                            keepMoving = false;
+                            wasTalking = false;
+                            continue;
+                        }
+                    }
+                    //If the player isn't in conversation or didn't recently finish a conversation, then teleport them and move on
+                    else
+                    {
+                        if(Vector3.Distance(targetPos, mainCharacter.transform.position) > mainCharMoveRange)
+                        {
+                            sNPC.npc.transform.position = new Vector3(targetPos.x, sNPC.npc.transform.position.y,
+                            (sNPC.npc.transform.position.z * zTransformConstant + targetPos.z * zTargetConstant));
+
+                            keepMoving = false;
+                            continue;
+                        }                        
+                    }                    
+                }
+                //If the player is not in range of the target then we approach the target position normally
+                keepMoving = false;
+
+                //Set the direction the npc should be facing
+                if (sNPC.npc.transform.position.x < targetPos.x)
+                {
+                    sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", false);
+                }
+                else
+                {
+                    sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", true);
+                }
+
+                if (Time.deltaTime != 0.0f)
+                {
+                    sNPC.npc.transform.position = Vector3.MoveTowards(
+                           sNPC.npc.transform.position,
+                           new Vector3(targetPos.x, sNPC.npc.transform.position.y, 
+                           (sNPC.npc.transform.position.z * zTransformConstant + targetPos.z * zTargetConstant)),
+                           npcSpeed * Time.deltaTime);
+
+                }
+            }
+            //If the target point is in range, then just keep moving in the direction they were moving
+            else
+            {
+                //If the player is in convo then set to wasTalking to true
+                if (mainCharacter.GetComponent<MainCharacter_Manager>().inConversation)
+                {
+                    wasTalking = true;
+                }
+
+                //If the player is in range of the target space then keep moving forward
+                keepMoving = true;
+
+                //If we need to keep moing but we reach our target, then we set having gone past the target point to true
+                if(!reachedTarget && Vector3.Distance(new Vector3(sNPC.npc.transform.position.x, targetPos.y, 
+                    (targetPos.z * zTransformConstant + sNPC.npc.transform.position.z * zTargetConstant)), targetPos) <= 0.05f)
+                {
+                    reachedTarget = true;
+                }
+                //If we've reached the target point in a previous move loop, then now we have gone past the target point in this loop
+                else if (reachedTarget)
+                {
+                    reachedTarget = false;
+                    pastTarget = !pastTarget;
+                }
+
+                //If the npc hit the left bound of the walk, then have them turn around
+                if (Vector3.Distance(new Vector3(sNPC.npc.transform.position.x, leftBound.position.y,
+                    (leftBound.position.z * zTransformConstant + sNPC.npc.transform.position.z * zTargetConstant)), leftBound.position) < 0.1f)
+                {
+                    flipNPCWalk = !flipNPCWalk;
+                    
+                }
+                //If the npc has hit the right bound of the walk then have them turn around
+                else if(Vector3.Distance(new Vector3(sNPC.npc.transform.position.x, rightBound.position.y,
+                    (rightBound.position.z * zTransformConstant + sNPC.npc.transform.position.z * zTargetConstant)), rightBound.position) < 0.1f)
+                {
+                    flipNPCWalk = !flipNPCWalk;
+                    
+                }
+                
+                //Checks to make sure that the shadow npc don't keep walking through banned cars
+                for(int j = 0; j < bannedBoxCars.Count; j++)
+                {
+                    //Gets the box car and the half len of the collider box for the car
+                    GameObject boxCar = GameManager.instance.allBoxCars[bannedBoxCars[j]];
+
+                    float boxCarHalfLen = boxCar.GetComponent<BoxCollider2D>().bounds.size.x / 2.0f;
+
+                    //If the box car is to the right of the npc
+                    if (boxCar.transform.position.x > sNPC.npc.transform.position.x)
+                    {
+                        //Flip the shadow npc if they are 3.0f away from the left side of the box car
+                        if(Mathf.Abs((boxCar.transform.position.x - boxCarHalfLen - 3.0f) - sNPC.npc.transform.position.x) < 0.1f)
+                        {
+                            flipNPCWalk = !flipNPCWalk;
+                        }
+                    }
+                    //If the box car is to the left of the npc
+                    else
+                    {
+                        //Flip the shadow npc if they are 3.0f away from the right side of the box car
+                        if (Mathf.Abs((boxCar.transform.position.x + boxCarHalfLen + 3.0f) - sNPC.npc.transform.position.x) < 0.1f)
+                        {
+                            flipNPCWalk = !flipNPCWalk;
+                        }
+                    }
+                }
+                
+                
+                if (targetPos.x > sNPC.npc.transform.position.x && !pastTarget && (Vector3.Distance(new Vector3(sNPC.npc.transform.position.x, targetPos.y,
+                    (targetPos.z * zTransformConstant + sNPC.npc.transform.position.z * zTargetConstant)), targetPos) > 0.05f))
+                {
+                    if(!flipNPCWalk)
+                    {
+                        //Set to face right
+                        movementDirection = 1.0f;
+                        sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", false);
+                    }
+                    else
+                    {
+                        //Set to face left
+                        movementDirection = -1.0f;
+                        sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", true);
+
+                        //flipNPCWalk = !flipNPCWalk;
+                    }
+                    
+                }
+                else if(targetPos.x <= sNPC.npc.transform.position.x && !pastTarget && (Vector3.Distance(new Vector3(sNPC.npc.transform.position.x, targetPos.y,
+                    (targetPos.z * zTransformConstant + sNPC.npc.transform.position.z * zTargetConstant)), targetPos) > 0.05f))
+                {
+                    if(!flipNPCWalk)
+                    {
+                        //Set to face left
+                        movementDirection = -1.0f;
+                        sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", true);
+                    }
+                    else
+                    {
+                        //Set to face right
+                        movementDirection = 1.0f;
+                        sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", false);
+
+                        //flipNPCWalk = !flipNPCWalk;
+                    }
+                    
+                }
+                else if(targetPos.x > sNPC.npc.transform.position.x && pastTarget && (Vector3.Distance(new Vector3(sNPC.npc.transform.position.x, targetPos.y,
+                    (targetPos.z * zTransformConstant + sNPC.npc.transform.position.z * zTargetConstant)), targetPos) > 0.05f))
+                {
+                    //If we flipped direction, reset past target
+                    //pastTarget = false;
+
+                    if (!flipNPCWalk)
+                    {
+                        //Set to face left
+                        movementDirection = -1.0f;
+                        sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", true);
+                    }
+                    else
+                    {
+                        //Set to face right
+                        movementDirection = 1.0f;
+                        sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", false);
+
+                        //flipNPCWalk = !flipNPCWalk;
+                    }
+                    
+                }
+                else if(targetPos.x <= sNPC.npc.transform.position.x && pastTarget && (Vector3.Distance(new Vector3(sNPC.npc.transform.position.x, targetPos.y,
+                    (targetPos.z * zTransformConstant + sNPC.npc.transform.position.z * zTargetConstant)), targetPos) > 0.05f))
+                {
+                    //If we flipped directions reset past target
+                    //pastTarget = false;
+
+                    if (!flipNPCWalk)
+                    {
+                        //Set to face right
+                        movementDirection = 1.0f;
+                        sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", false);
+                    }
+                    else
+                    {
+                        //Set to face left
+                        movementDirection = -1.0f;
+                        sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", true);
+
+                        //flipNPCWalk = !flipNPCWalk;
+                    }
+                    
+                }
+
+                sNPC.npc.transform.position = Vector3.MoveTowards(
+                    sNPC.npc.transform.position,
+                    new Vector3(sNPC.npc.transform.position.x + movementDirection * 10.0f, 
+                        sNPC.npc.transform.position.y, 
+                        sNPC.npc.transform.position.z * zTransformConstant + targetPos.z * zTargetConstant),
+                    npcSpeed * Time.deltaTime);
+            }
+
+            yield return null;
+        }
+
+        //Set the walking animation off
+        sNPC.npc.GetComponent<Animator>().SetBool("Is_Walking", false);
+
+        //Remove the shadowNPC from the moving list when they are done moving
+        for(int m = 0; m < movingShadowNPC.Count; m++)
+        {
+            if(movingShadowNPC[m].npc == sNPC.npc)
+            {
+                movingShadowNPC.Remove(movingShadowNPC[m]);
+            }
+        }
+
+        //Randomly set the direction the shadow npc faces after moving
+        int randDir = Random.Range(1, 3);
+        if(randDir == 1)
+        {
+            sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", false);
+        }
+        else
+        {
+            sNPC.npc.GetComponent<Animator>().SetBool("Is_Left", true);
+        }
+
+        yield break;
+    }
+
+    
+
+    /// <summary>
+    /// Finds a random available spot in the box car to move the shadow npc
+    /// if a spot is found then it moves the shadow npc to the spot and returns true
+    /// if no spot is available, it doesn't move them and returns false
+    /// </summary>
+    /// <param name="npc"></param>
+    private bool AssignSpotBoxCar(ShadowNPC shadowNpc, int boxCar, bool ignoreRange)
+    {
+        //Grabs the boxCarSpots index corresponding to the generated boxcar
+        int boxCarIndex = GetBoxCarSpotsIndex(boxCar);
+        if (boxCarIndex == -1) return false;
+
+        //Checks to see if the randomly selected box car is one we can move the npc to without entering a banned car or moving through one
+        bool isValidMove = true;
+        for (int j = 0; j < bannedBoxCars.Count; j++)
+        {
+            int banned = bannedBoxCars[j];
+            int target = boxCar;
+            int curr = shadowNpc.currBoxCarNum;
+
+            //A movement is banned if the target is one of the banned box cars 
+            //or if the target is greater than the banned and the curr is less than the banned 
+            //or the target is greater than the banned and the curr is less than the banned
+            if ((target == banned || ((target > banned || curr > banned) && (target < banned || curr < banned))))
+            {
+                isValidMove = false;
+            }
+        }
+        //If the move is invalid then return false
+        if (!isValidMove)
+        {
+            return false;
+        }
+
+        //list of the spot indices in the specific box car that have an available spot 
+        List<int> availSpots = new List<int>();
+
+        //Goes throw all the spots and adds to the list every available spot
+        for(int i = 0; i < boxCarSpots[boxCarIndex].shadowSpots.Count; i++)
+        {
+            if (boxCarSpots[boxCarIndex].shadowSpots[i].shadowNPC == null)
+            {
+                availSpots.Add(i);
+            }
+        }
+
+        //If there are spots available to select from
+        if(availSpots.Count != 0)
+        {
+            //Random selects the spot to send the shadow npc
+            int index = Random.Range(0, availSpots.Count);
+            BoxCarShadowSpot chosenSpot = boxCarSpots[boxCarIndex].shadowSpots[availSpots[index]];
+
+            //Updates the npc transform and sets the npc to that spot
+            //shadowNpc.npc.transform.position = chosenSpot.spotPosition.position;
+            bool charMoved = MoveShadowNPC(shadowNpc, chosenSpot.spotPosition.position, ignoreRange);
+            //StartCoroutine(MoveShadowPerson(shadowNpc, chosenSpot.spotPosition.position));
+            //If the character didn't move, return false
+            if (!charMoved)
+            {
+                return false;
+            }
+
+            //Updates the spot with the shadow npc
+            chosenSpot.shadowNPC = shadowNpc.npc;
+            boxCarSpots[boxCarIndex].shadowSpots[availSpots[index]] = chosenSpot;
+
+            int shadowBoxCarIndex = GetBoxCarSpotsIndex(shadowNpc.currBoxCarNum);
+            if (shadowBoxCarIndex != -1)
+            {
+                //Updates the previous spot of the npc to reset it back to null
+                BoxCarShadowSpot prevSpot = boxCarSpots[shadowBoxCarIndex].shadowSpots[shadowNpc.currSpotNum];
+                prevSpot.shadowNPC = null;
+                boxCarSpots[shadowBoxCarIndex].shadowSpots[shadowNpc.currSpotNum] = prevSpot;
+            }            
+
+            //Updates the ShadowNPC spot values
+            int npcIndex = ShadowNPCList.IndexOf(shadowNpc);
+
+            ShadowNPC sNPC;
+            sNPC.currBoxCarNum = boxCar;
+            sNPC.currSpotNum = availSpots[index];
+            sNPC.npc = shadowNpc.npc;
+
+            ShadowNPCList[npcIndex] = sNPC;
+
+            return true;
+
+        }
+        //If not, just return false and don't move
+        else
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Finds a random available spot in the box car to move the shadow npc
+    /// if a spot is found then it moves the shadow npc to the spot and returns true
+    /// if no spot is available, it doesn't move them and returns false
+    /// </summary>
+    /// <param name="npc"></param>
+    private bool AssignSpotTrain(ShadowNPC shadowNpc, bool ignoreRange)
+    {
+        //Randomly select a box car
+        int boxCar = Random.Range(1, boxCarSpots.Count + 1);
+
+        //Grabs the boxCarSpots index corresponding to the generated boxcar
+        int boxCarIndex = GetBoxCarSpotsIndex(boxCar);
+        if (boxCarIndex == -1) return false;
+
+        //Checks to see if the randomly selected box car is one we can move the npc to without entering a banned car or moving through one
+        bool isValidMove = true;
+        for (int j = 0; j < bannedBoxCars.Count; j++)
+        {
+            int banned = bannedBoxCars[j] - 1;
+            int target = boxCar - 1;
+            int curr = shadowNpc.currBoxCarNum - 1;
+
+            //A movement is banned if the target is one of the banned box cars 
+            //or if the target is greater than the banned and the curr is less than the banned 
+            //or the target is greater than the banned and the curr is less than the banned
+            if ((target == banned || ((target > banned || curr > banned) && (target < banned || curr < banned))))
+            {
+                isValidMove = false;
+            }
+        }
+        //If the move is invalid then return false
+        if (!isValidMove)
+        {
+            return false;
+        }
+
+        //list of the spot indices in the specific box car that have an available spot 
+        List<int> availSpots = new List<int>();
+
+        //Goes throw all the spots and adds to the list every available spot
+        for (int i = 0; i < boxCarSpots[boxCarIndex].shadowSpots.Count; i++)
+        {
+            if (boxCarSpots[boxCarIndex].shadowSpots[i].shadowNPC == null)
+            {
+                availSpots.Add(i);
+            }
+        }
+
+        //If there are spots available to select from
+        if (availSpots.Count != 0)
+        {
+            //Random selects the spot to send the shadow npc
+            int index = Random.Range(0, availSpots.Count);
+            BoxCarShadowSpot chosenSpot = boxCarSpots[boxCarIndex].shadowSpots[availSpots[index]];
+
+            //Updates the npc transform and sets the npc to that spot
+            //shadowNpc.npc.transform.position = chosenSpot.spotPosition.position;
+            bool charMoved = MoveShadowNPC(shadowNpc, chosenSpot.spotPosition.position, ignoreRange);
+            //StartCoroutine(MoveShadowPerson(shadowNpc, chosenSpot.spotPosition.position));
+            //If the character didn't move, return false
+            if (!charMoved)
+            {
+                return false;
+            }
+
+            chosenSpot.shadowNPC = shadowNpc.npc;
+            boxCarSpots[boxCarIndex].shadowSpots[availSpots[index]] = chosenSpot;
+
+            int shadowBoxCarIndex = GetBoxCarSpotsIndex(shadowNpc.currBoxCarNum);
+            if (shadowBoxCarIndex != -1)
+            {
+                //Updates the previous spot of the npc to reset it back to null
+                BoxCarShadowSpot prevSpot = boxCarSpots[shadowBoxCarIndex].shadowSpots[shadowNpc.currSpotNum];
+                prevSpot.shadowNPC = null;
+                boxCarSpots[shadowBoxCarIndex].shadowSpots[shadowNpc.currSpotNum] = prevSpot;
+            }            
+
+            //Updates the ShadowNPC spot values
+            int npcIndex = ShadowNPCList.IndexOf(shadowNpc);
+
+            ShadowNPC sNPC;
+            sNPC.currBoxCarNum = boxCar;
+            sNPC.currSpotNum = availSpots[index];
+            sNPC.npc = shadowNpc.npc;
+
+            ShadowNPCList[npcIndex] = sNPC; 
+
+            return true;
+
+        }
+        //If not, just return false and don't move
+        else
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Bans the given box car from access by the shadow npcs, any shadow npc that was in the box car is removed from the train
+    /// and from the shadow NPC list to be added back later when the box car is unbanned
+    /// </summary>
+    /// <param name="boxCarNum"></param>
+    public void BanBoxCar(int boxCarNum)
+    {
+        bannedBoxCars.Add(boxCarNum);
+
+        List<ShadowNPC> removeList = new List<ShadowNPC>();
+
+        //Removes every shadow npc in the box that is banned
+        for(int i = 0; i < boxCarSpots[boxCarNum - 1].shadowSpots.Count; i++)
+        {
+            for(int j = 0; j < ShadowNPCList.Count; j++)
+            {
+                if(ShadowNPCList[j].npc == boxCarSpots[boxCarNum - 1].shadowSpots[i].shadowNPC)
+                {
+                    if(Vector3.Distance(ShadowNPCList[j].npc.transform.position,
+                        GameManager.instance.MainCharacter.transform.position) > mainCharViewRange)
+                    {
+                        ShadowNPCList[j].npc.SetActive(false);
+                    }
+                    else
+                    {
+                        removeList.Add(ShadowNPCList[j]);
+                    }
+
+                    //Removes the npc from the shadow npc list when they get removed from the box
+                    ShadowNPCList.Remove(ShadowNPCList[j]);
+                }
+            }            
+        }
+
+        removedShadowNPC.Add(boxCarNum, removeList);
+    }
+
+    /// <summary>
+    /// Removes the banned box car from the banned car list and adds all the Shadow NPCs back to the the main list
+    /// </summary>
+    /// <param name="boxCarNum"></param>
+    public void UnBanBoxCar(int boxCarNum)
+    {
+        bannedBoxCars.Remove(boxCarNum);
+
+        for(int i = 0; i < removedShadowNPC[boxCarNum].Count; i++)
+        {
+            reAddShadowNPC.Add(removedShadowNPC[boxCarNum][i]);
+        }
+    }
+
+    /// <summary>
+    /// Gets the index in the box car spots list corresponding to the given box car number
+    /// </summary>
+    /// <param name="boxCarNum"></param>
+    /// <returns></returns>
+    private int GetBoxCarSpotsIndex(int boxCarNum)
+    {
+        //Goes through all the box car spots list and finds the index with the box car as the given box car number
+        for (int i = 0; i < boxCarSpots.Count; i++)
+        {
+            if(boxCarSpots[i].boxCarNum == boxCarNum)
+            {
+                return i;
+            }
+        }
+
+        //If no matching box car is found, return -1
+        return -1;
+    }
+
+    /// <summary>
+    /// Tryies to move the given shadow npc to a random spot on the train
+    /// </summary>
+    /// <param name="shadowNpc"></param>
+    private void ShadowNPCMoveRequest(ShadowNPC shadowNpc)
+    {
+        //Keep trying to assign them to a spot until they finally get one
+        bool posAssigned = false;
+        int count = 0;
+        while (!posAssigned && count < 200)
+        {
+            int randBoxCar = Random.Range(1, boxCarSpots.Count + 1);
+
+            if(randBoxCar != MainCharacter_Manager.CurrentBoxCar())
+            {
+                posAssigned = AssignSpotBoxCar(shadowNpc, randBoxCar, true);
+            }
+
+            count++;
+        }
+    }
+
+    //Request sent to try to move shadow people near the player without regard to the movement time buffer
+    public void MoveShadowPeopleNearPlayer()
+    {
+        for(int i = 0; i < ShadowNPCList.Count; i++)
+        {
+            //If the shadow NPC is already moving then don't try to move the NPC
+            for (int k = 0; k < movingShadowNPC.Count; k++)
+            {
+                if (movingShadowNPC[k].npc == ShadowNPCList[k].npc)
+                {
+                    continue;
+                }
+            }
+
+            //If an npc is in range of the player when 
+            if (Vector3.Distance(mainCharacter.transform.position, ShadowNPCList[i].npc.transform.position) < mainCharConvoRange)
+            {
+                ShadowNPCMoveRequest(ShadowNPCList[i]);
+            }
+        }
+    }
+}
+
