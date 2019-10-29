@@ -1,0 +1,65 @@
+Dynamic Camera Rotation System:
+
+Description:
+This system was was built into the main character control script as a part of movement control section. The system is utilized for a 
+section portion of the game where the player is walking on a pre-defined path in a 3D space with various nodes set along the path (this
+portion of the game is not demonstrated in the included game sample). This feature was designed so that as the player walks along the
+path, the camera will rotate and pan smoothly to maintain the player perspeective of walking forward and to give the path the sense of a 
+curve rather than straight line segments followed by a sharp turn. It takes the start and end movement targets or nodes the player
+traveled across or is traveling to as well as their current forward movement vector and the target movement vector. It then takes the
+angle between these two vectors and uses an inverse lerp to determine the player's progression along the path between the start and 
+target point to calculate how much the camera needs to rotate in regards to that point of the path. finally, it subtracts the previous
+angle calculated to rotate and camera from this total in order to determine the increment of rotation. This function is called on each 
+frame of movement in order to create a smooth rotation and preservation of eprspective.
+
+
+Coding Features and Strategies Utilized in this system:
+ - Vector Math and Calculations involving the player's movement vector and target movement vector a well as the cross product
+   calculations to determine the appropriate direction of rotation
+
+
+Code Snippets:
+ - The main character control script is under NDA; the featured function below is the function responsible for rotating the camera 
+   position
+    /// <summary>
+    /// Rotates the player based on the angle the player is facing to the target vector direction
+    /// Should be called in the update function only while processing the player movement
+    /// </summary>
+    /// <param name="currVector"></param>
+    /// <param name="targetVector"></param>
+    /// <param name="startPosition"></param>
+    /// <param name="targetPosition"></param>
+    private void UpdateCharacterRotation(Vector3 currVector, Vector3 targetVector, Vector3 startPosition, Vector3 targetPosition)
+    {
+        //Rotates the player as we move along the path
+        //Get the angle btween the player's vector and the target movement vector
+        float angle = Vector3.Angle(new Vector3(currVector.x, 0, currVector.z),
+            new Vector3(targetVector.x, 0, targetVector.z));
+
+        //Calculate the percentage the player has traversed the current segment of movement
+        float moveProgress = Mathf.InverseLerp(startPosition.x, targetPosition.x, transform.position.x);
+        //Get the angle the player should have rotated by at this point in the segment
+        angle = angle * moveProgress;
+
+        //Get the direction the player should rotate based on the cross product of the player move vector 
+        //and the target move vector
+        float dirOfRotation = Vector3.Cross(new Vector3(currVector.x, 0, currVector.z),
+            new Vector3(targetVector.x, 0, targetVector.z)).y;
+
+        //Determines the direction constant
+        if (dirOfRotation > 0)
+        {
+            dirOfRotation = 1.0f;
+        }
+        else
+        {
+            dirOfRotation = -1.0f;
+        }
+
+        //Rotate the player by the angle of movement minus the previous angle of movement multiplied by the direction
+        //the player should have rotated
+        RotatePlayer(dirOfRotation * (angle - previousAngle), true);
+
+        //Set the previous angle to be the current angle
+        previousAngle = angle;
+    }
