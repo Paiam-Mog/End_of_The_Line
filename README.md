@@ -15,7 +15,9 @@ Some of the systems and features that I have worked on or implemented during my 
  * Camera system that rotates the player view based on their progress on a path set by the designers, 
    used for a special transition sequence
  * Character spawner system that pulls an npc's prefab from an asset bundle and on start places their 
-   character object into the game and assigns the appropriate references and values for the character 
+   character object into the game and assigns the appropriate references and values for the character
+
+Additional systems I have worked on involve taking disparate code and/or systems designed by other engineers and routing them into general managers that house functions responsible for communicating with multiple systems at once or passing on sets of data to other systems with different defined data structures.
  
  
  
