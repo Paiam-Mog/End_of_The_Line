@@ -1,7 +1,12 @@
 Dynamic Dialogue System:
 
 Description: 
-This system was built in to the previously implemented dialogue parsing/processing code. The system is a restructing of the previous code that provided a tool for the writers to define and create flags in the game which remembers specific dialogue branches and choices the player makes. Within the text, the writers can then check for the existence of these flags and if found, then additional dialogue choices can be made to the player, entire sections of dialogue can be replaced and whole conversations become available to the player. This system allows for the writers to design and create complex, branching dialogue trees and allow for the player's choices to alter the game state as well.
+This system was built in to the previously implemented dialogue parsing/processing code. The system is a restructing of the previous code
+that provided a tool for the writers to define and create flags in the game which remembers specific dialogue branches and choices the
+player makes. Within the text, the writers can then check for the existence of these flags and if found, then additional dialogue choices
+can be made to the player, entire sections of dialogue can be replaced and whole conversations become available to the player. This system
+allows for the writers to design and create complex, branching dialogue trees and allow for the player's choices to alter the game state
+as well.
 
 Coding Features and Strategies Utilized in this system:
  - Data Structures such as sets to store the generated flags and lists to keep track of the changes made by the existence of a flag
