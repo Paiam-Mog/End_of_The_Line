@@ -1,14 +1,24 @@
 Background Character AI Movement system:
 
 Description:
-This system was a new feature that I built for the game in order to control the movement of background characters (refered to as Shadow NPCs in the code) across the game area. These characters are meant to populate the game space and give a sense of a liveliness to the game as a whole. The system controls all the movement of the shadow npcs in the game, referencing them through lists that are populated in the editor. It randomly selects a set number of npcs and attempts to move them to a randomly selected Box Car and spot on the game space (which is a train). Once it has attempted to move all the characters, the system then waits for a random amount of time (within a set time interval) before randomly selecting a new set of characters to begin moving.
+This system was a new feature that I built for the game in order to control the movement of background characters (refered to as Shadow
+NPCs in the code) across the game area. These characters are meant to populate the game space and give a sense of a liveliness to the
+game as a whole. The system controls all the movement of the shadow npcs in the game, referencing them through lists that are populated
+in the editor. It randomly selects a set number of npcs and attempts to move them to a randomly selected Box Car and spot on the game
+space (which is a train). Once it has attempted to move all the characters, the system then waits for a random amount of time (within a
+set time interval) before randomly selecting a new set of characters to begin moving.
 
-The system is also designed to take into account various environmental factors that would prevent a shadow npc from moving or stopping. If a particular section of the train is set as "banned" for the npcs, it will temporarily remove the npcs from the banned area and prevent any npc from entering the area for any reason. Additionally, depending on where the player is or what the player is doing (such as entering into a convrsation with another npc on the train) the background characters will move away from the area and will not stop behind the player, but instead will continue moving until they are "allowed" to stop (such as when the player ends a conversation).
+The system is also designed to take into account various environmental factors that would prevent a shadow npc from moving or stopping.
+If a particular section of the train is set as "banned" for the npcs, it will temporarily remove the npcs from the banned area and
+prevent any npc from entering the area for any reason. Additionally, depending on where the player is or what the player is doing (such
+as entering into a convrsation with another npc on the train) the background characters will move away from the area and will not stop
+behind the player, but instead will continue moving until they are "allowed" to stop (such as when the player ends a conversation).
 
 
 Coding Features and Strategies Utilized in this system:
  - Data Structures such as lists and dictionaries to keep store and track information regarding the shadow npcs' movement
- - State Machine Style AI in which the system is able to remember and track where the npcs are coming from and what state of movement      they were or are at in order to determine their next action or movement 
+ - State Machine Style AI in which the system is able to remember and track where the npcs are coming from and what state of movement
+   they were or are at in order to determine their next action or movement 
 
 
 Code Snippets:
