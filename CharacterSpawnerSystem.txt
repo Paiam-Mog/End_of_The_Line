@@ -1,0 +1,12 @@
+Character Spawner System:
+
+Description:
+This system was a new feature implemented for the game to better divide and manage the file structure for the important npcs. The system spawns in characters at the start of the game and assigns them necessary references and data. Each npc's prefab and their corresponding animations and sprites are stored into assets bundles and when the game enters the scene, it loads all the assets from the asset bundles and instantiates their prefabs. The system also grabs and checks for the existence of certain components, such as their animators, and ensures that they are loaded in along with the appropriate characters.
+
+
+Coding Features and Strategies Utilized in this system:
+ - Asset Bundle loading and unloading to organize and manage character prefabs and corresponding assets
+ 
+ 
+Code Snippets:
+Not available due to NDA.
